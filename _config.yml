@@ -1,0 +1,8 @@
+title: iev6.github.io
+description: My own site
+google_analytics: 
+show_downloads: true
+theme: jekyll-theme-midnight
+
+gems:
+  - jekyll-mentions
