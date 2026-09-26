@@ -21,6 +21,7 @@
     --display: "Yuji Syuku", "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
     --text: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
   }
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); overflow: hidden; }
   #stage { position: fixed; inset: 0; }
   #canvas-host { position: absolute; inset: 0; z-index: 0; }
@@ -71,13 +72,39 @@
   .quiet { background: none; border: 0; padding: 12px 4px; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
   button:focus-visible { outline: 2px solid var(--seal); outline-offset: 3px; }
 
-  .sound {
+  .tools {
     position: absolute; z-index: 2;
     right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    display: flex; gap: 8px;
+  }
+  .tool {
     background: color-mix(in srgb, var(--paper) 85%, transparent);
     color: var(--indigo); border: 1px solid var(--indigo);
     padding: 9px 14px; font-size: 0.85rem;
   }
+  .panel {
+    position: absolute; z-index: 3;
+    right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 64px);
+    width: min(21rem, calc(100% - 32px)); box-sizing: border-box;
+    display: grid; gap: 12px;
+    padding: 14px 16px;
+    background: var(--paper); border: 1px solid var(--indigo);
+    font-family: var(--text); font-size: 0.9rem; line-height: 1.45;
+  }
+  .panel h2 { margin: 0; font-size: 1rem; font-weight: 700; }
+  .panel p { margin: 0; }
+  .panel fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  .panel legend { padding: 0; margin-bottom: 6px; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  .panel label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--indigo) 35%, transparent); cursor: pointer; }
+  .panel label:has(input:checked) { border-color: var(--indigo); background: color-mix(in srgb, var(--indigo) 10%, transparent); }
+  .panel input { accent-color: var(--seal); margin: 0; }
+  .panel .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .meter { height: 4px; background: color-mix(in srgb, var(--indigo) 18%, transparent); }
+  .meter i { display: block; height: 100%; width: 0; background: var(--seal); }
+  .note { font-size: 0.8rem; color: color-mix(in srgb, var(--ink) 75%, transparent); }
+  #stage.is-recording .quote, #stage.is-recording .credit { visibility: hidden; }
+  #canvas-host.recording { background: var(--indigo); display: grid; place-items: center; }
+
   .credit {
     position: absolute; z-index: 1;
     left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
@@ -106,7 +133,29 @@
     </div>
   </div>
 
-  <button class="sound" id="sound" type="button" aria-pressed="false" hidden>Mute</button>
+  <div class="tools" id="tools" hidden>
+    <button class="tool" id="export" type="button" aria-expanded="false" aria-controls="panel">Export video</button>
+    <button class="tool" id="sound" type="button" aria-pressed="false">Mute</button>
+  </div>
+
+  <section class="panel" id="panel" hidden aria-label="Export video">
+    <h2>Export video</h2>
+    <div id="rec-setup" class="panel-body">
+      <fieldset>
+        <legend>Frame</legend>
+        <label><input type="radio" name="fmt" id="fmt-landscape" value="landscape" checked> 16:9</label>
+        <label><input type="radio" name="fmt" id="fmt-portrait" value="portrait"> 9:16</label>
+        <label><input type="radio" name="fmt" id="fmt-square" value="square"> 1:1</label>
+      </fieldset>
+    </div>
+    <p class="note" id="rec-note">36 seconds: two full swells and the whole chord cycle, so it loops cleanly. It records in real time with the score, so keep this tab in front.</p>
+    <div class="meter" id="rec-meter" hidden><i id="rec-bar"></i></div>
+    <div class="row">
+      <button class="primary" id="rec-go" type="button">Record 36 s</button>
+      <button class="quiet" id="rec-cancel" type="button" hidden>Cancel</button>
+      <button class="primary" id="rec-save" type="button" hidden>Save video</button>
+    </div>
+  </section>
   <p class="credit">after Hokusai, <i>Kanagawa-oki nami ura</i> (c. 1831)</p>
 </main>
 
@@ -114,8 +163,9 @@
 <script src="https://cdn.jsdelivr.net/npm/p5.brush@2.2.3/dist/p5.brush.js"></script>
 <script>
 /* ---------- shared clock + swell (visuals and audio read the same curve) ---------- */
-const T0 = performance.now();
+let T0 = performance.now();
 const clock = () => (performance.now() - T0) / 1000;
+const resetClock = () => { T0 = performance.now(); };
 const SWELL_PERIOD = 18; // seconds between big sets
 const swellAt = (t) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / SWELL_PERIOD);
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -134,12 +184,13 @@ const LAYERS = [
 ];
 
 let W, H, SPAN, U, bg, brushScale = 1;
+const SCREEN_DENSITY = Math.min(window.devicePixelRatio || 1, 1.5);
 
 function span() { return Math.max(W, H * 0.9); }
 
 function setup() {
   const host = document.getElementById("canvas-host");
-  pixelDensity(Math.min(window.devicePixelRatio || 1, 1.5));
+  pixelDensity(SCREEN_DENSITY);
   createCanvas(host.clientWidth, host.clientHeight, WEBGL);
   const cnv = document.querySelector("canvas");
   if (cnv && cnv.parentElement !== host) host.appendChild(cnv);
@@ -162,6 +213,7 @@ function layout() {
 }
 
 function windowResized() {
+  if (Rec.active) return;
   const host = document.getElementById("canvas-host");
   resizeCanvas(host.clientWidth, host.clientHeight);
   layout();
@@ -171,7 +223,7 @@ function windowResized() {
 /* ---------- the still layer: paper, sky, distant Fuji ---------- */
 function buildBackground() {
   if (bg) bg.remove();
-  bg = createFramebuffer({ width: W, height: H });
+  bg = createFramebuffer({ width: W, height: H, density: pixelDensity() });
   const HZ = H * 0.58;
   bg.draw(() => {
     clear();
@@ -391,7 +443,7 @@ function drawSurfer(t, sw) {
 
 /* ---------- frame ---------- */
 function draw() {
-  const t = reduceMotion ? SWELL_PERIOD * 0.45 : clock();
+  const t = reduceMotion && !Rec.active ? SWELL_PERIOD * 0.45 : clock();
   const sw = swellAt(t);
   background(PAL.paper);
   push();
@@ -409,7 +461,7 @@ function draw() {
 
 /* ---------- score: Web Audio, no samples ---------- */
 const Score = (() => {
-  let ctx, master, wet, oceanF, oceanG, hissG, timer, muted = false;
+  let ctx, master, speaker, tap, wet, oceanF, oceanG, hissG, timer, muted = false;
   let chordIdx = -1, chordFilters = [], nextBell = 0;
   const LEVEL = 0.85;
   // Dm9 -> Bbmaj7 -> F(add9) -> C(add9): starts minor, lifts to major. MIDI, first note is the bass.
@@ -441,13 +493,19 @@ const Score = (() => {
     return b;
   }
 
-  function start() {
+  function start(startMuted = false) {
     if (ctx) return;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     const comp = ctx.createDynamicsCompressor();
     master = ctx.createGain();
     master.gain.value = 0;
-    master.connect(comp).connect(ctx.destination);
+    muted = startMuted;
+    speaker = ctx.createGain();
+    speaker.gain.value = muted ? 0 : 1;
+    master.connect(comp).connect(speaker).connect(ctx.destination);
+    // The recorder listens before the speaker mute, so a muted tab still records the score.
+    tap = ctx.createMediaStreamDestination();
+    comp.connect(tap);
     master.gain.setTargetAtTime(LEVEL, ctx.currentTime, 2);
 
     const verb = ctx.createConvolver();
@@ -534,28 +592,199 @@ const Score = (() => {
   }
 
   function toggle() {
-    if (!ctx) return false;
+    if (!ctx) { start(false); return false; }
     muted = !muted;
-    master.gain.setTargetAtTime(muted ? 0 : LEVEL, ctx.currentTime, 0.3);
-    if (!muted && ctx.state === "suspended") ctx.resume();
+    speaker.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.3);
+    if (ctx.state === "suspended") ctx.resume();
     return muted;
   }
-  return { start, toggle };
+  function stream() { return tap ? tap.stream : null; }
+  function resume() { if (ctx && ctx.state === "suspended") ctx.resume(); }
+  function rewind() { chordIdx = -1; } // after the clock resets, start the progression from its first chord
+  return { start, toggle, stream, resume, rewind, get muted() { return !ctx || muted; } };
 })();
 
+/* ---------- video export ---------- */
+function wrapText(g, text, maxW) {
+  const words = text.split(" "), lines = [];
+  let line = "";
+  for (const w of words) {
+    const next = line ? line + " " + w : w;
+    if (line && g.measureText(next).width > maxW) { lines.push(line); line = w; } else line = next;
+  }
+  lines.push(line);
+  return lines;
+}
+
+// The quote, seal and credit live in HTML on screen; the recorder paints them into each frame.
+function paintOverlay(g, w, h) {
+  const m = Math.min(w, h), pad = Math.round(m * 0.065);
+  const fs = Math.round(w > h ? w * 0.034 : w * 0.068);
+  const display = `${fs}px "Yuji Syuku", "Shippori Mincho", Georgia, serif`;
+  g.textAlign = "left"; g.textBaseline = "alphabetic";
+  g.fillStyle = "#1A2433"; g.font = display;
+  const lines = [];
+  for (const s of ["Suffering doesn’t end.", "You just learn to surf it."]) lines.push(...wrapText(g, s, w - pad * 2 - fs * 0.9));
+  const lh = fs * 1.22, y0 = pad + fs;
+  lines.forEach((ln, i) => g.fillText(ln, pad, y0 + i * lh));
+
+  const last = lines[lines.length - 1], ly = y0 + (lines.length - 1) * lh;
+  const sw = fs * 0.44, sh = fs * 0.84, sx = pad + g.measureText(last).width + fs * 0.2 + sw / 2;
+  g.save();
+  g.translate(sx, ly - fs * 0.32); g.rotate(-0.035);
+  g.fillStyle = "#B5392A"; g.fillRect(-sw / 2, -sh / 2, sw, sh);
+  g.fillStyle = "#F6F1E4"; g.font = `700 ${Math.round(fs * 0.32)}px "Shippori Mincho", serif`;
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText("波", 0, -sh * 0.22); g.fillText("乗", 0, sh * 0.22);
+  g.restore();
+
+  g.globalAlpha = 0.8; g.fillStyle = "#F6F1E4";
+  g.font = `500 ${Math.round(m * 0.018)}px "Shippori Mincho", Georgia, serif`;
+  g.fillText("after Hokusai, Kanagawa-oki nami ura (c. 1831)", pad * 0.5, h - pad * 0.5);
+  g.globalAlpha = 1;
+}
+
+const Rec = (() => {
+  const DURATION = 36; // two swells, one full chord cycle
+  const SIZES = { landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080] };
+  const TYPES = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  let active = false, out, g, recorder, chunks, stopped, startedAt, onTick, type, cancelled;
+
+  const supported = () => typeof MediaRecorder !== "undefined" && HTMLCanvasElement.prototype.captureStream;
+
+  async function start(fmt, tick) {
+    const [w, h] = SIZES[fmt];
+    type = TYPES.find((t) => MediaRecorder.isTypeSupported(t)) || "";
+    try { await Promise.all([document.fonts.load('64px "Yuji Syuku"'), document.fonts.load('700 32px "Shippori Mincho"')]); } catch (e) {}
+
+    out = document.createElement("canvas");
+    out.width = w; out.height = h;
+    g = out.getContext("2d");
+
+    document.getElementById("canvas-host").classList.add("recording");
+    document.getElementById("stage").classList.add("is-recording");
+    pixelDensity(1);
+    resizeCanvas(w, h);
+    // Show the full recording frame letterboxed in the window.
+    const host = document.getElementById("canvas-host"), cnv = host.querySelector("canvas");
+    const fit = Math.min(host.clientWidth / w, host.clientHeight / h);
+    cnv.style.width = w * fit + "px"; cnv.style.height = h * fit + "px";
+    layout();
+    resetClock();
+    Score.rewind();
+
+    const stream = out.captureStream(30);
+    const audio = Score.stream();
+    if (audio) audio.getAudioTracks().forEach((tr) => stream.addTrack(tr));
+    recorder = new MediaRecorder(stream, { mimeType: type || undefined, videoBitsPerSecond: 10e6 });
+    type = recorder.mimeType || type || "video/webm";
+    chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    stopped = new Promise((res) => { recorder.onstop = res; });
+
+    onTick = tick; cancelled = false; active = true;
+    startedAt = performance.now();
+    recorder.start(1000);
+    loop();
+    return new Promise((resolve) => { Rec._resolve = resolve; });
+  }
+
+  // Runs after p5.brush has flushed the frame (see the postdraw hook below).
+  function frame() {
+    if (!active) return;
+    g.drawImage(document.querySelector("#canvas-host canvas"), 0, 0, out.width, out.height);
+    paintOverlay(g, out.width, out.height);
+    const el = (performance.now() - startedAt) / 1000;
+    onTick(Math.min(1, el / DURATION));
+    if (el >= DURATION) finish();
+  }
+
+  async function finish(cancel = false) {
+    if (!active) return;
+    active = false; cancelled = cancel;
+    recorder.stop();
+    await stopped;
+    document.getElementById("canvas-host").classList.remove("recording");
+    document.getElementById("stage").classList.remove("is-recording");
+    pixelDensity(SCREEN_DENSITY);
+    windowResized();
+    if (reduceMotion) noLoop();
+    Rec._resolve(cancelled ? null : new Blob(chunks, { type }));
+  }
+
+  return { start, frame, finish, supported, DURATION, get active() { return active; }, ext: () => (type.includes("mp4") ? "mp4" : "webm") };
+})();
+
+if (typeof p5 !== "undefined") {
+  p5.registerAddon((_p5, _fn, lifecycles) => { lifecycles.postdraw = () => Rec.frame(); });
+}
+
+// Artifact viewers save through the downloads capability; a plain page (GitHub Pages) uses a link.
+async function saveVideo(blob, filename) {
+  const downloads = window.claude && window.claude.use ? await window.claude.use("downloads").catch(() => null) : null;
+  if (downloads) {
+    try { await downloads.save({ filename, data: blob }); return "saved"; }
+    catch (e) { return e && e.code === "declined" ? "declined" : "failed"; }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  return "saved";
+}
+
 /* ---------- controls ---------- */
-const gate = document.getElementById("gate"), soundBtn = document.getElementById("sound");
-document.getElementById("begin").addEventListener("click", () => {
-  Score.start();
-  gate.hidden = true;
-  soundBtn.hidden = false;
-  soundBtn.focus({ preventScroll: true });
+const $ = (id) => document.getElementById(id);
+const gate = $("gate"), tools = $("tools"), soundBtn = $("sound"), exportBtn = $("export"), panel = $("panel");
+const recGo = $("rec-go"), recCancel = $("rec-cancel"), recSave = $("rec-save"), recNote = $("rec-note"), recMeter = $("rec-meter"), recBar = $("rec-bar");
+const NOTE = recNote.textContent;
+let lastVideo = null;
+
+function syncSound() {
+  soundBtn.textContent = Score.muted ? "Unmute" : "Mute";
+  soundBtn.setAttribute("aria-pressed", String(Score.muted));
+}
+function openTools() { gate.hidden = true; tools.hidden = false; syncSound(); }
+
+$("begin").addEventListener("click", () => { Score.start(); openTools(); soundBtn.focus({ preventScroll: true }); });
+$("silent").addEventListener("click", openTools);
+soundBtn.addEventListener("click", () => { Score.toggle(); syncSound(); });
+
+exportBtn.addEventListener("click", () => {
+  panel.hidden = !panel.hidden;
+  exportBtn.setAttribute("aria-expanded", String(!panel.hidden));
+  if (!Rec.supported()) {
+    recGo.disabled = true;
+    recNote.textContent = "This browser can't record a canvas. Try a current Chrome, Edge, Firefox or Safari.";
+  }
 });
-document.getElementById("silent").addEventListener("click", () => { gate.hidden = true; });
-soundBtn.addEventListener("click", () => {
-  const m = Score.toggle();
-  soundBtn.textContent = m ? "Unmute" : "Mute";
-  soundBtn.setAttribute("aria-pressed", String(m));
+
+recGo.addEventListener("click", async () => {
+  const fmt = document.querySelector('input[name="fmt"]:checked').value;
+  Score.start(true); // records the score even when the speakers stay muted
+  Score.resume();
+  syncSound();
+  recGo.hidden = true; recSave.hidden = true; recCancel.hidden = false; recMeter.hidden = false;
+  document.querySelectorAll('input[name="fmt"]').forEach((r) => (r.disabled = true));
+  recNote.textContent = "Recording… keep this tab in front.";
+  const blob = await Rec.start(fmt, (p) => {
+    recBar.style.width = (p * 100).toFixed(1) + "%";
+    recNote.textContent = `Recording ${Math.round(p * Rec.DURATION)} of ${Rec.DURATION} s. Keep this tab in front.`;
+  });
+  recCancel.hidden = true; recMeter.hidden = true; recBar.style.width = "0";
+  document.querySelectorAll('input[name="fmt"]').forEach((r) => (r.disabled = false));
+  recGo.hidden = false; recGo.textContent = "Record again";
+  if (!blob) { recNote.textContent = NOTE; return; }
+  lastVideo = { blob, name: `learning-to-surf-${fmt}.${Rec.ext()}` };
+  recNote.textContent = `Ready: ${lastVideo.name}, ${(blob.size / 1048576).toFixed(1)} MB.`;
+  recSave.hidden = false;
+  recSave.focus({ preventScroll: true });
+});
+recCancel.addEventListener("click", () => Rec.finish(true));
+recSave.addEventListener("click", async () => {
+  if (!lastVideo) return;
+  const r = await saveVideo(lastVideo.blob, lastVideo.name);
+  recNote.textContent = r === "saved" ? `Saved ${lastVideo.name}.` : r === "declined" ? "Save cancelled. The video is still here if you want it." : "Saving isn't available in this view.";
 });
 
 window.addEventListener("load", () => {
