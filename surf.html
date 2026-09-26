@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Learning to Surf</title>
+<meta name="description" content="Suffering doesn't end. You just learn to surf it. A Hokusai-inspired ink sea painted live with p5.brush, with a generative ambient score.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Yuji+Syuku&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #ECE3CE;
+    --sky: #D8C6A0;
+    --prussian: #1D3B5C;
+    --indigo: #0F1E33;
+    --foam: #F6F1E4;
+    --seal: #B5392A;
+    --ink: #1A2433;
+    --display: "Yuji Syuku", "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+    --text: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  }
+  html, body { height: 100%; margin: 0; background: var(--paper); color: var(--ink); overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  #canvas-host { position: absolute; inset: 0; z-index: 0; }
+  #canvas-host canvas { display: block; }
+
+  .quote {
+    position: absolute; z-index: 1;
+    left: max(16px, 5vw);
+    top: calc(env(safe-area-inset-top, 0px) + max(20px, 7vh));
+    max-width: min(40rem, calc(100% - 32px));
+    font-family: var(--display);
+    font-size: clamp(1.75rem, 4.4vw, 3.5rem);
+    line-height: 1.2;
+    text-wrap: balance;
+    pointer-events: none;
+  }
+  .quote p { margin: 0; animation: rise 2.6s ease-out both; }
+  .quote .l2 { animation-delay: 2.2s; }
+  .seal {
+    display: inline-grid; vertical-align: middle; justify-items: center;
+    margin-left: 0.4em;
+    font-family: var(--text); font-weight: 700;
+    font-size: 0.34em; line-height: 1.05;
+    padding: 0.3em 0.25em;
+    background: var(--seal); color: var(--foam);
+    border-radius: 2px;
+    transform: rotate(-2deg);
+  }
+  @keyframes rise { from { opacity: 0.15; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  .gate {
+    position: absolute; z-index: 2;
+    left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + max(16px, 3vh));
+    transform: translateX(-50%);
+    width: min(26rem, calc(100% - 32px)); box-sizing: border-box;
+    display: grid; gap: 12px; justify-items: center;
+    padding: 14px 18px;
+    background: color-mix(in srgb, var(--paper) 90%, transparent);
+    border: 1px solid var(--indigo);
+    font-family: var(--text);
+    text-align: center;
+  }
+  .gate p { margin: 0; font-size: 0.95rem; line-height: 1.5; }
+  .gate .row { display: flex; flex-wrap: wrap; gap: 10px 18px; justify-content: center; align-items: center; }
+  button { font: 600 1rem/1 var(--text); cursor: pointer; }
+  .primary { background: var(--indigo); color: var(--foam); border: 0; padding: 12px 20px; letter-spacing: 0.02em; }
+  .primary:hover { background: var(--prussian); }
+  .quiet { background: none; border: 0; padding: 12px 4px; color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+  button:focus-visible { outline: 2px solid var(--seal); outline-offset: 3px; }
+
+  .sound {
+    position: absolute; z-index: 2;
+    right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    background: color-mix(in srgb, var(--paper) 85%, transparent);
+    color: var(--indigo); border: 1px solid var(--indigo);
+    padding: 9px 14px; font-size: 0.85rem;
+  }
+  .credit {
+    position: absolute; z-index: 1;
+    left: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    margin: 0; max-width: calc(100% - 140px);
+    font: 500 0.78rem/1.4 var(--text); letter-spacing: 0.03em;
+    color: var(--foam); opacity: 0.8;
+  }
+  .fallback { position: absolute; inset: auto 16px 40% 16px; z-index: 1; font-family: var(--text); text-align: center; }
+  @media (prefers-reduced-motion: reduce) { .quote p { animation: none; } }
+</style>
+</head>
+<body>
+<main id="stage">
+  <div id="canvas-host"></div>
+
+  <header class="quote">
+    <p class="l1">Suffering doesn’t end.</p>
+    <p class="l2">You just learn to surf it.<span class="seal" aria-hidden="true"><span>波</span><span>乗</span></span></p>
+  </header>
+
+  <div class="gate" id="gate">
+    <p>Live score: ocean swell, a chord that lifts from minor to major, a bell at each crest.</p>
+    <div class="row">
+      <button class="primary" id="begin" type="button">Begin with sound</button>
+      <button class="quiet" id="silent" type="button">Watch in silence</button>
+    </div>
+  </div>
+
+  <button class="sound" id="sound" type="button" aria-pressed="false" hidden>Mute</button>
+  <p class="credit">after Hokusai, <i>Kanagawa-oki nami ura</i> (c. 1831)</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@2.2.3/lib/p5.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/p5.brush@2.2.3/dist/p5.brush.js"></script>
+<script>
+/* ---------- shared clock + swell (visuals and audio read the same curve) ---------- */
+const T0 = performance.now();
+const clock = () => (performance.now() - T0) / 1000;
+const SWELL_PERIOD = 18; // seconds between big sets
+const swellAt = (t) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / SWELL_PERIOD);
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const PAL = {
+  paper: "#ECE3CE", sky: "#D8C6A0", skyDeep: "#BFA575", prussian: "#1D3B5C",
+  indigo: "#0F1E33", mid: "#3E6A8A", pale: "#A9BFC6", foam: "#F6F1E4", seal: "#B5392A",
+};
+
+/* Back to front. base/amp are fractions of height, len of the wave span. speed is crests per second. */
+const LAYERS = [
+  { base: 0.585, amp: 0.010, len: 0.13, speed: 0.05, body: "#8EACBA", line: "#5D8299", stripe: "#C9D6D6", stripes: 0, foam: 0.0, seed: 0.3 },
+  { base: 0.640, amp: 0.020, len: 0.22, speed: 0.07, body: "#5F8AA5", line: PAL.prussian, stripe: "#B8CCD2", stripes: 1, foam: 0.35, seed: 1.7 },
+  { base: 0.785, amp: 0.080, len: 0.60, speed: 0.00, body: PAL.prussian, line: PAL.indigo, stripe: "#7FA2B8", stripes: 3, foam: 1.0, seed: 0, rider: true },
+  { base: 0.935, amp: 0.040, len: 0.42, speed: 0.11, body: PAL.indigo, line: "#07101C", stripe: "#3E6A8A", stripes: 2, foam: 0.9, seed: 4.2, swell: true },
+];
+
+let W, H, SPAN, U, bg, brushScale = 1;
+
+function span() { return Math.max(W, H * 0.9); }
+
+function setup() {
+  const host = document.getElementById("canvas-host");
+  pixelDensity(Math.min(window.devicePixelRatio || 1, 1.5));
+  createCanvas(host.clientWidth, host.clientHeight, WEBGL);
+  const cnv = document.querySelector("canvas");
+  if (cnv && cnv.parentElement !== host) host.appendChild(cnv);
+  frameRate(30);
+  layout();
+  if (reduceMotion) noLoop();
+}
+
+function layout() {
+  W = width; H = height; SPAN = span(); U = Math.min(W, H) * 0.016;
+  const target = Math.max(1.3, Math.min(W, H) / 230);
+  brush.scaleBrushes(target / brushScale);
+  brushScale = target;
+  // Park the rider's crest just behind (right of) the surfer so they sit on its forward face.
+  const rider = LAYERS[2];
+  const lambda = rider.len * SPAN;
+  const crestX = surferX(0) + lambda * 0.16;
+  rider.seed = Math.PI / 2 - (2 * Math.PI * crestX) / lambda;
+  buildBackground();
+}
+
+function windowResized() {
+  const host = document.getElementById("canvas-host");
+  resizeCanvas(host.clientWidth, host.clientHeight);
+  layout();
+  if (reduceMotion) redraw();
+}
+
+/* ---------- the still layer: paper, sky, distant Fuji ---------- */
+function buildBackground() {
+  if (bg) bg.remove();
+  bg = createFramebuffer({ width: W, height: H });
+  const HZ = H * 0.58;
+  bg.draw(() => {
+    clear();
+    background(PAL.paper);
+    brush.load(bg);
+    push();
+    translate(-W / 2, -H / 2);
+    randomSeed(7); noiseSeed(7);
+    brush.noStroke(); brush.noHatch(); brush.noFill();
+
+    // Sky darkens toward the top, the way the print's sky is printed in graded bokashi.
+    for (let i = 0; i < 4; i++) {
+      brush.wash(PAL.sky, 46);
+      brush.rect(0, 0, W, HZ * (0.28 + 0.2 * i));
+    }
+    brush.noWash();
+    brush.fill(PAL.skyDeep, 70);
+    brush.fillBleed(0.2, "out");
+    brush.fillTexture(0.6, 0.45);
+    brush.rect(-W * 0.05, -H * 0.04, W * 1.1, H * 0.2);
+    brush.noFill();
+
+    // Long cloud strokes.
+    brush.set("cpencil", PAL.skyDeep, 1.1);
+    for (let i = 0; i < 9; i++) {
+      const y = HZ * random(0.25, 0.8);
+      const x = random(-0.1, 0.9) * W;
+      brush.line(x, y, x + W * random(0.15, 0.4), y + random(-3, 3));
+    }
+
+    // Fuji, small on the horizon.
+    const fx = W * 0.74, fw = Math.min(W, H) * 0.3, fh = fw * 0.34;
+    const peakL = [fx - fw * 0.09, HZ - fh], peakR = [fx + fw * 0.07, HZ - fh * 1.02];
+    const fuji = [[fx - fw / 2, HZ + 2], [fx - fw * 0.28, HZ - fh * 0.45], peakL, peakR, [fx + fw * 0.26, HZ - fh * 0.47], [fx + fw / 2, HZ + 2]];
+    brush.fill(PAL.prussian, 120);
+    brush.fillBleed(0.1, "out");
+    brush.fillTexture(0.5, 0.55);
+    brush.polygon(fuji);
+    brush.noFill();
+    brush.wash(PAL.foam, 235);
+    const capY = HZ - fh * 0.62;
+    brush.polygon([
+      [lerp(fuji[1][0], peakL[0], 0.45), capY], peakL, peakR, [lerp(fuji[4][0], peakR[0], 0.45), capY],
+      [fx + fw * 0.08, capY + fh * 0.12], [fx + fw * 0.02, capY + fh * 0.02], [fx - fw * 0.04, capY + fh * 0.15], [fx - fw * 0.1, capY + fh * 0.03],
+    ]);
+    brush.noWash();
+    brush.set("pen", PAL.indigo, 0.55);
+    brush.spline(fuji.map(([x, y]) => [x, y]), 0.25);
+
+    // Far sea.
+    brush.noStroke();
+    brush.wash(PAL.pale, 255);
+    brush.rect(-4, HZ, W + 8, H - HZ + 4);
+    brush.noWash();
+    brush.set("2H", PAL.mid, 0.8);
+    brush.line(0, HZ, W, HZ);
+    pop();
+  });
+  brush.load();
+}
+
+/* ---------- waves ---------- */
+function waveY(L, x, t, sw) {
+  const lambda = L.len * SPAN;
+  let ph = 2 * Math.PI * (x / lambda + t * L.speed) + L.seed;
+  if (L.rider) ph += 0.22 * Math.sin(t * 0.55);
+  const s = (Math.sin(ph) + 1) / 2;
+  const crest = Math.pow(s, 3.2); // broad troughs, sharp crests
+  const gain = L.swell ? 0.45 + 1.0 * sw : L.rider ? 0.8 + 0.4 * sw : 1;
+  const A = L.amp * H * gain;
+  const n = noise(x * 0.0035 + L.seed * 3, t * 0.12) - 0.5;
+  return L.base * H - A * (crest * 2 - 0.3) + n * A * 0.6;
+}
+
+function crests(L, t) {
+  const lambda = L.len * SPAN;
+  const out = [];
+  let wob = L.rider ? 0.22 * Math.sin(t * 0.55) : 0;
+  // sin(ph) = 1  =>  x = lambda * (1/4 - t*speed - (seed + wob)/2pi + k)
+  const x0 = lambda * (0.25 - t * L.speed - (L.seed + wob) / (2 * Math.PI));
+  const kMin = Math.floor((-lambda - x0) / lambda), kMax = Math.ceil((W + lambda - x0) / lambda);
+  for (let k = kMin; k <= kMax; k++) out.push(x0 + k * lambda);
+  return out;
+}
+
+function drawLayer(L, t, sw) {
+  const step = Math.max(6, W / 80);
+  const pts = [];
+  for (let x = -step * 2; x <= W + step * 2; x += step) pts.push([x, waveY(L, x, t, sw)]);
+
+  brush.noStroke(); brush.noHatch(); brush.noFill();
+  brush.wash(L.body, 255);
+  brush.polygon([...pts, [W + step * 2, H + 20], [-step * 2, H + 20]]);
+  brush.noWash();
+
+  // Parallel contour lines inside the wave body.
+  const A = L.amp * H;
+  for (let s = 1; s <= L.stripes; s++) {
+    brush.set("rotring", L.stripe, 0.7);
+    const off = A * (0.45 + 0.55 * s);
+    const line = [];
+    for (let i = 0; i < pts.length; i += 2) {
+      const [x, y] = pts[i];
+      line.push([x, y + off + (noise(x * 0.01, s * 9, t * 0.2) - 0.5) * A * 0.5]);
+    }
+    brush.spline(line, 0.5);
+  }
+
+  brush.set("pen", L.line, L.rider || L.swell ? 1.25 : 0.8);
+  brush.spline(pts, 0.4);
+}
+
+function drawFoam(L, t, sw) {
+  if (!L.foam) return;
+  const lambda = L.len * SPAN;
+  const intensity = L.foam * (L.swell ? 0.3 + sw : L.rider ? 0.7 + 0.3 * sw : 1);
+  const r = Math.min(W, H) * 0.05 * Math.sqrt(L.len) * (0.7 + 0.5 * intensity);
+  for (const xc of crests(L, t)) {
+    if (xc < -lambda * 0.3 || xc > W + lambda * 0.3) continue;
+    const yc = waveY(L, xc, t, sw);
+
+    // Foam cap riding the crest.
+    const cap = [];
+    for (let i = 0; i <= 10; i++) {
+      const x = xc - lambda * 0.1 + (lambda * 0.2 * i) / 10;
+      cap.push([x, waveY(L, x, t, sw) - 1]);
+    }
+    for (let i = 10; i >= 0; i--) {
+      const x = xc - lambda * 0.1 + (lambda * 0.2 * i) / 10;
+      const bump = Math.sin((Math.PI * i) / 10);
+      cap.push([x, waveY(L, x, t, sw) + r * 0.55 * bump * intensity]);
+    }
+    brush.noStroke();
+    brush.wash(PAL.foam, 235);
+    brush.polygon(cap);
+    brush.noWash();
+
+    // Claws of foam curling forward (left, the direction of travel).
+    const claws = Math.round(3 + 4 * intensity);
+    brush.set("marker", PAL.foam, 1.3 + 0.8 * intensity);
+    for (let j = 0; j < claws; j++) {
+      const x0 = xc - r * 0.6 * j + random(-r, r) * 0.2;
+      const y0 = waveY(L, x0, t, sw) + random(-0.2, 0.3) * r;
+      const s = r * random(0.55, 1.05) * (1 - j / (claws + 2));
+      brush.spline([
+        [x0, y0, 1.2],
+        [x0 - 0.6 * s, y0 - 0.4 * s, 1.1],
+        [x0 - 1.25 * s, y0 - 0.05 * s, 0.8],
+        [x0 - 1.35 * s, y0 + 0.5 * s, 0.5],
+        [x0 - 1.0 * s, y0 + 0.75 * s, 0.25],
+      ], 0.8);
+    }
+
+    // Spray thrown off the lip.
+    const dots = Math.round(6 * intensity);
+    brush.noStroke();
+    brush.wash(PAL.foam, 220);
+    for (let d = 0; d < dots; d++) {
+      const x = xc - random(0, lambda * 0.14);
+      brush.circle(x, yc - random(0.2, 1.6) * r, random(0.08, 0.2) * r);
+    }
+    brush.noWash();
+  }
+}
+
+/* ---------- the surfer ---------- */
+function surferX(t) { return W * (W > H ? 0.5 : 0.44) + W * 0.025 * Math.sin(t * 0.37); }
+
+function drawSurfer(t, sw) {
+  const L = LAYERS[2];
+  const xs = surferX(t);
+  const ys = waveY(L, xs, t, sw);
+  const dy = (waveY(L, xs + 3, t, sw) - waveY(L, xs - 3, t, sw)) / 6;
+  const ang = Math.atan(dy);
+  const u = U * (W > H ? 1 : 1.25);
+
+  // Wake trailing behind the board.
+  brush.set("marker", PAL.foam, 0.7);
+  for (let i = 0; i < 3; i++) {
+    const a = xs + u * (4 + i * 2.2), b = xs + u * (9 + i * 3.4);
+    brush.spline([[a, waveY(L, a, t, sw) + u * 0.2 * i, 1], [(a + b) / 2, waveY(L, (a + b) / 2, t, sw) + u * 0.35 * i, 0.7], [b, waveY(L, b, t, sw) + u * 0.5 * i, 0.2]], 0.5);
+  }
+
+  push();
+  translate(xs, ys - u * 0.4);
+  rotate(ang);
+
+  // Board: vermilion, like the seal.
+  const board = [];
+  for (let i = 0; i <= 12; i++) { const a = (Math.PI * i) / 12; board.push([-6 * u * Math.cos(a), -0.55 * u * Math.sin(a) - (i < 3 ? (3 - i) * 0.12 * u : 0)]); }
+  for (let i = 12; i >= 0; i--) { const a = (Math.PI * i) / 12; board.push([-6 * u * Math.cos(a), 0.3 * u * Math.sin(a)]); }
+  brush.noStroke();
+  brush.wash(PAL.seal, 255);
+  brush.polygon(board);
+  brush.noWash();
+  brush.set("pen", PAL.indigo, 0.7);
+  brush.spline(board.slice(0, 13), 0.5);
+
+  // Figure, counter-rotated a little so the body stays closer to upright.
+  rotate(-ang * 0.35);
+  const bob = Math.sin(t * 1.3) * 0.25 * u;
+  const hip = [0.4 * u, -4.6 * u + bob], sh = [-1.3 * u, -7.9 * u + bob], head = [-2.0 * u, -9.5 * u + bob];
+  brush.set("pen", PAL.indigo, 2.4);
+  brush.spline([[-2.4 * u, -0.5 * u], [-2.2 * u, -3.0 * u + bob], hip], 0.3);   // front leg
+  brush.spline([[2.2 * u, -0.5 * u], [2.9 * u, -2.8 * u + bob], hip], 0.3);     // back leg
+  brush.set("pen", PAL.indigo, 3.0);
+  brush.spline([hip, [-0.5 * u, -6.4 * u + bob], sh], 0.4);                    // torso
+  brush.set("pen", PAL.indigo, 1.9);
+  brush.spline([sh, [-3.4 * u, -8.0 * u + bob], [-5.2 * u, -7.2 * u + bob]], 0.4); // leading arm
+  brush.spline([sh, [0.9 * u, -7.4 * u + bob], [2.9 * u, -8.3 * u + bob]], 0.4);  // trailing arm
+  brush.noStroke();
+  brush.wash(PAL.indigo, 255);
+  brush.circle(head[0], head[1], 1.05 * u);
+  brush.noWash();
+  pop();
+}
+
+/* ---------- frame ---------- */
+function draw() {
+  const t = reduceMotion ? SWELL_PERIOD * 0.45 : clock();
+  const sw = swellAt(t);
+  background(PAL.paper);
+  push();
+  translate(-W / 2, -H / 2);
+  image(bg, 0, 0, W, H);
+  randomSeed(1000 + Math.floor(t * 6)); // strokes "boil" at 6 fps, like hand-drawn animation
+  drawLayer(LAYERS[0], t, sw);
+  drawLayer(LAYERS[1], t, sw); drawFoam(LAYERS[1], t, sw);
+  drawLayer(LAYERS[2], t, sw);
+  drawFoam(LAYERS[2], t, sw);
+  drawSurfer(t, sw);
+  drawLayer(LAYERS[3], t, sw); drawFoam(LAYERS[3], t, sw);
+  pop();
+}
+
+/* ---------- score: Web Audio, no samples ---------- */
+const Score = (() => {
+  let ctx, master, wet, oceanF, oceanG, hissG, timer, muted = false;
+  let chordIdx = -1, chordFilters = [], nextBell = 0;
+  const LEVEL = 0.85;
+  // Dm9 -> Bbmaj7 -> F(add9) -> C(add9): starts minor, lifts to major. MIDI, first note is the bass.
+  const CHORDS = [
+    [38, 50, 57, 60, 64, 65],
+    [34, 46, 53, 57, 62, 69],
+    [41, 53, 60, 65, 67, 69],
+    [36, 48, 55, 62, 64, 67],
+  ];
+  const BELLS = [74, 77, 79, 81, 84, 86, 89]; // D minor pentatonic
+  const CHORD_SECS = 9;
+  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+  function impulse(sec, decay) {
+    const len = Math.floor(ctx.sampleRate * sec), b = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+    return b;
+  }
+  function noiseBuffer(brown) {
+    const len = ctx.sampleRate * 5, b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const w = Math.random() * 2 - 1;
+      if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+    }
+    return b;
+  }
+
+  function start() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = ctx.createDynamicsCompressor();
+    master = ctx.createGain();
+    master.gain.value = 0;
+    master.connect(comp).connect(ctx.destination);
+    master.gain.setTargetAtTime(LEVEL, ctx.currentTime, 2);
+
+    const verb = ctx.createConvolver();
+    verb.buffer = impulse(5, 2.4);
+    wet = ctx.createGain();
+    wet.gain.value = 0.6;
+    wet.connect(verb).connect(master);
+
+    // Ocean: brown noise through a lowpass that opens as the swell builds.
+    const sea = ctx.createBufferSource(); sea.buffer = noiseBuffer(true); sea.loop = true;
+    oceanF = ctx.createBiquadFilter(); oceanF.type = "lowpass"; oceanF.frequency.value = 300;
+    oceanG = ctx.createGain(); oceanG.gain.value = 0.2;
+    const pan = ctx.createStereoPanner();
+    const lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+    lfo.frequency.value = 0.045; lfoG.gain.value = 0.45; lfo.connect(lfoG).connect(pan.pan); lfo.start();
+    sea.connect(oceanF).connect(oceanG).connect(pan).connect(master);
+    sea.start();
+
+    // Hiss of breaking foam, only near the top of a set.
+    const hiss = ctx.createBufferSource(); hiss.buffer = noiseBuffer(false); hiss.loop = true;
+    const hissF = ctx.createBiquadFilter(); hissF.type = "bandpass"; hissF.frequency.value = 3200; hissF.Q.value = 0.6;
+    hissG = ctx.createGain(); hissG.gain.value = 0;
+    hiss.connect(hissF).connect(hissG).connect(master);
+    hissG.connect(wet);
+    hiss.start();
+
+    tick();
+    timer = setInterval(tick, 200);
+  }
+
+  function playChord(notes, at) {
+    const filt = ctx.createBiquadFilter();
+    filt.type = "lowpass"; filt.frequency.value = 700; filt.Q.value = 0.7;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0, at);
+    env.gain.linearRampToValueAtTime(1, at + 3.5);
+    env.gain.setValueAtTime(1, at + CHORD_SECS - 0.5);
+    env.gain.linearRampToValueAtTime(0, at + CHORD_SECS + 4);
+    filt.connect(env);
+    env.connect(master); env.connect(wet);
+    const stop = at + CHORD_SECS + 4.2;
+    notes.forEach((m, i) => {
+      const v = ctx.createGain();
+      v.gain.value = i === 0 ? 0.11 : 0.035;
+      v.connect(filt);
+      const kinds = i === 0 ? [["sine", 0]] : [["sawtooth", -7], ["triangle", 6]];
+      for (const [type, cents] of kinds) {
+        const o = ctx.createOscillator();
+        o.type = type; o.frequency.value = hz(m); o.detune.value = cents;
+        o.connect(v); o.start(at); o.stop(stop);
+      }
+    });
+    chordFilters.push({ filt, until: stop });
+  }
+
+  function bell(at, sw) {
+    const m = BELLS[Math.floor(Math.random() * BELLS.length)];
+    const g = ctx.createGain(), p = ctx.createStereoPanner();
+    p.pan.value = Math.random() * 1.2 - 0.6;
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(0.05 + 0.04 * sw, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 4);
+    g.connect(p); p.connect(master); p.connect(wet);
+    [[1, 1], [2.76, 0.3], [5.4, 0.08]].forEach(([ratio, amp]) => {
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.frequency.value = hz(m) * ratio; og.gain.value = amp;
+      o.connect(og).connect(g); o.start(at); o.stop(at + 4.1);
+    });
+  }
+
+  function tick() {
+    const now = ctx.currentTime, t = clock(), sw = swellAt(t);
+    const idx = Math.floor(t / CHORD_SECS);
+    if (idx !== chordIdx) { chordIdx = idx; playChord(CHORDS[idx % CHORDS.length], now + 0.05); }
+    oceanF.frequency.setTargetAtTime(220 + 1300 * sw, now, 0.5);
+    oceanG.gain.setTargetAtTime(0.16 + 0.34 * sw, now, 0.5);
+    hissG.gain.setTargetAtTime(0.045 * Math.pow(sw, 3), now, 0.4);
+    chordFilters = chordFilters.filter((c) => c.until > now);
+    for (const c of chordFilters) c.filt.frequency.setTargetAtTime(520 + 1100 * sw, now, 0.8);
+    if (now >= nextBell) {
+      if (nextBell) bell(now + 0.02, sw);
+      nextBell = now + (sw > 0.7 ? 1.4 + Math.random() * 1.8 : 3.5 + Math.random() * 4.5);
+    }
+  }
+
+  function toggle() {
+    if (!ctx) return false;
+    muted = !muted;
+    master.gain.setTargetAtTime(muted ? 0 : LEVEL, ctx.currentTime, 0.3);
+    if (!muted && ctx.state === "suspended") ctx.resume();
+    return muted;
+  }
+  return { start, toggle };
+})();
+
+/* ---------- controls ---------- */
+const gate = document.getElementById("gate"), soundBtn = document.getElementById("sound");
+document.getElementById("begin").addEventListener("click", () => {
+  Score.start();
+  gate.hidden = true;
+  soundBtn.hidden = false;
+  soundBtn.focus({ preventScroll: true });
+});
+document.getElementById("silent").addEventListener("click", () => { gate.hidden = true; });
+soundBtn.addEventListener("click", () => {
+  const m = Score.toggle();
+  soundBtn.textContent = m ? "Unmute" : "Mute";
+  soundBtn.setAttribute("aria-pressed", String(m));
+});
+
+window.addEventListener("load", () => {
+  if (typeof p5 === "undefined" || typeof brush === "undefined") {
+    const f = document.createElement("p");
+    f.className = "fallback";
+    f.textContent = "The painting needs p5.js and p5.brush from cdn.jsdelivr.net. Check your connection and reload.";
+    document.getElementById("stage").appendChild(f);
+  }
+});
+</script>
+</body>
+</html>
